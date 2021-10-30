@@ -31,37 +31,69 @@ jobs:
         sudo -E apt-get autoremove -y --purge
         sudo -E apt-get clean -y
 
-    - name: Prepare Source
-      run: |
-        git config --global core.autocrlf input
-        hg clone http://hg.openjdk.java.net/openjfx/11-dev/rt
-        git clone -b master --single-branch https://github.com/JetBrains/JetBrainsRuntime.git
-        cd JetBrainsRuntime
-        mv ../idea.patch ./
-        patch -p1 < idea.patch
-
-    - name: Compile OpenJFX
+    - name: Compile JCEF
       env:
-        JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
-        JDK_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+        JDK_11: /usr/lib/jvm/java-11-openjdk-amd64
+        ANT_HOME: /usr/share/ant
       run: |
-        cd rt
-        chmod a+x gradlew
-        ./gradlew -PCOMPILE_WEBKIT=true
+        git clone https://github.com/JetBrains/jcef.git jcef
+        cd jcef
+        mkdir jcef_build && cd jcef_build
+        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release ..
+        make -j4
+        cd ../jb/tools/linux && chmod +x *
+        ./build.sh all
+
+    - name: List Paths
+      run: |
+        cd jcef
+        ls -a
+        echo
+        find
 
     - name: Compile JetBrainsRuntime
       env:
         JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
         JDK_HOME: /usr/lib/jvm/java-11-openjdk-amd64
       run: |
+        git config --global core.autocrlf input
+        git clone -b master --single-branch https://github.com/JetBrains/JetBrainsRuntime.git
         cd JetBrainsRuntime
-        sh ./configure --disable-warnings-as-errors  --with-import-modules=../rt/build/modular-sdk
+        git apply -p0 < jb/project/tools/patches/add_jcef_module.patch
+        mv ../idea.patch ./
+        patch -p1 < idea.patch
+        sh ./configure --disable-warnings-as-errors --with-import-modules=../jcef/out/linux64/modular-sdk
         make images
+
+    - name: List Paths
+      run: |
+        cd JetBrainsRuntime
+        ls -a
+        echo
+        find
+
+    - name: Link Modules
+      env:
+        BASE_DIR: build/linux-x86_64-normal-server-release/images
+        JSDK: build/linux-x86_64-normal-server-release/images/jdk
+        JBR_BUNDLE: jbr_jcef
+        JCEF_PATH: ../jcef/jcef_build/native/Release
+      run: |
+        cd JetBrainsRuntime
+        cat modules.list > modules_tmp.list
+        rm -rf ${BASE_DIR}/${JBR_BUNDLE}
+        $JSDK/bin/jlink \
+            --module-path $JSDK/jmods --no-man-pages --compress=2 \
+            --add-modules $(xargs < modules_tmp.list | sed s/" "//g) --output $BASE_DIR/$JBR_BUNDLE
+        cp -R $BASE_DIR/$JBR_BUNDLE $BASE_DIR/jbr
+        rsync -av ${JCEF_PATH}/ $BASE_DIR/$JBR_BUNDLE/lib --exclude="modular-sdk"
+        grep -v "^JAVA_VERSION" $JSDK/release | grep -v "^MODULES" >> $BASE_DIR/$JBR_BUNDLE/release
+        rm -rf ${BASE_DIR}/jbr
+        cp -R ${BASE_DIR}/${JBR_BUNDLE} ${BASE_DIR}/jbr
 
     - name: Collect Artifact
       run: |
         cd JetBrainsRuntime/build/linux-x86_64-normal-server-release/images
-        mv jdk jbr
         zip -r jbr-linux-x64.zip ./jbr/*
         mv jbr-linux-x64.zip ../../../../
 
