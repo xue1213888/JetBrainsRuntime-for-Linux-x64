@@ -27,9 +27,21 @@ jobs:
             libgl1-mesa-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libgtk2.0-dev libgtk-3-dev libjpeg-dev libpng-dev libudev-dev libx11-dev libxext-dev \
             libxml2-dev libxrandr-dev libxrender-dev libxslt1-dev libxt-dev libxtst-dev libxxf86vm-dev \
-            make mercurial openjdk-11-jdk pkg-config ruby x11proto-core-dev x11proto-xf86vidmode-dev zip
+            make mercurial openjdk-11-jdk pkg-config ruby tree x11proto-core-dev x11proto-xf86vidmode-dev zip
         sudo -E apt-get autoremove -y --purge
         sudo -E apt-get clean -y
+
+    - name: Generate Information
+      id: gen_info
+      env:
+        TZ: Asia/Shanghai
+      run: |
+        release_tag="$(date +%Y-%m-%d_%H-%M)"
+        release_name="jbr-linux-x64-$release_tag"
+        release_description="${{ secrets.DESC }}"
+        echo "##[set-output name=release_tag;]$release_tag"
+        echo "##[set-output name=release_name;]$release_name"
+        echo "##[set-output name=release_description;]$release_description"
 
     - name: Compile JCEF
       env:
@@ -49,9 +61,9 @@ jobs:
         cd jcef
         ls -a
         echo
-        find
+        tree -a
 
-    - name: Compile JetBrainsRuntime
+    - name: Patch & Compile JetBrainsRuntime with JCEF
       env:
         JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
         JDK_HOME: /usr/lib/jvm/java-11-openjdk-amd64
@@ -70,48 +82,36 @@ jobs:
         cd JetBrainsRuntime
         ls -a
         echo
-        find
+        tree -a
 
-    - name: Link Modules
+    - name: Reduce Size
       env:
         BASE_DIR: build/linux-x86_64-normal-server-release/images
-        JSDK: build/linux-x86_64-normal-server-release/images/jdk
         JBR_BUNDLE: jbr_jcef
         JCEF_PATH: ../jcef/jcef_build/native/Release
       run: |
         cd JetBrainsRuntime
         cat modules.list > modules_tmp.list
         rm -rf ${BASE_DIR}/${JBR_BUNDLE}
-        $JSDK/bin/jlink \
-            --module-path $JSDK/jmods --no-man-pages --compress=2 \
+        ${BASE_DIR}/jdk/bin/jlink \
+            --module-path ${BASE_DIR}/jdk/jmods --no-man-pages --compress=2 \
             --add-modules $(xargs < modules_tmp.list | sed s/" "//g) --output $BASE_DIR/$JBR_BUNDLE
         cp -R $BASE_DIR/$JBR_BUNDLE $BASE_DIR/jbr
         rsync -av ${JCEF_PATH}/ $BASE_DIR/$JBR_BUNDLE/lib --exclude="modular-sdk"
-        grep -v "^JAVA_VERSION" $JSDK/release | grep -v "^MODULES" >> $BASE_DIR/$JBR_BUNDLE/release
+        grep -v "^JAVA_VERSION" ${BASE_DIR}/jdk/release | grep -v "^MODULES" >> $BASE_DIR/$JBR_BUNDLE/release
         rm -rf ${BASE_DIR}/jbr
         cp -R ${BASE_DIR}/${JBR_BUNDLE} ${BASE_DIR}/jbr
 
-    - name: Collect Artifact
+    - name: Package Artifact
       run: |
         cd JetBrainsRuntime/build/linux-x86_64-normal-server-release/images
         zip -r jbr-linux-x64.zip ./jbr/*
         mv jbr-linux-x64.zip ../../../../
 
-    - name: Assemble Artifact
-      id: assemble_artifact
-      env:
-        TZ: Asia/Shanghai
-      run: |
-        time=$(date +%Y%m%d%H%M)
-        release_tag=$time
-        release_name="jbr-linux-x64-$time"
-        echo "##[set-output name=release_name;]$release_name"
-        echo "##[set-output name=release_tag;]$release_tag"
-
     - name: Upload Artifact
       uses: actions/upload-artifact@master
       with:
-        name: ${{ steps.assemble_artifact.outputs.release_tag }}
+        name: ${{ steps.gen_info.outputs.release_tag }}
         path: jbr-linux-x64.zip
 
     - name: Create Release
@@ -120,8 +120,9 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ steps.assemble_artifact.outputs.release_tag }}
-        release_name:  ${{ steps.assemble_artifact.outputs.release_name }}
+        tag_name: ${{ steps.gen_info.outputs.release_tag }}
+        release_name:  ${{ steps.gen_info.outputs.release_name }}
+        body: ${{ steps.gen_info.outputs.release_description }}
         draft: false
         prerelease: true
 
@@ -133,6 +134,6 @@ jobs:
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
         asset_path: ./jbr-linux-x64.zip
-        asset_name: ${{ steps.assemble_artifact.outputs.release_name }}.zip
+        asset_name: ${{ steps.gen_info.outputs.release_name }}.zip
         asset_content_type: application/zip
 
