@@ -91,7 +91,7 @@ jobs:
         JCEF_PATH: ../jcef/jcef_build/native/Release
       run: |
         cd JetBrainsRuntime
-        cat modules.list > modules_tmp.list
+        cat jb/project/tools/common/modules.list > modules_tmp.list
         rm -rf ${BASE_DIR}/${JBR_BUNDLE}
         ${BASE_DIR}/jdk/bin/jlink \
             --module-path ${BASE_DIR}/jdk/jmods --no-man-pages --compress=2 \
