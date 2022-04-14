@@ -49,11 +49,7 @@ jobs:
         ANT_HOME: /usr/share/ant
       run: |
         git clone https://github.com/JetBrains/jcef.git jcef
-        cd jcef
-        mkdir jcef_build && cd jcef_build
-        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release ..
-        make -j4
-        cd ../jb/tools/linux && chmod +x *
+        cd jcef/jb/tools/linux && chmod +x *
         ./build.sh all
 
     - name: List Paths
@@ -71,10 +67,11 @@ jobs:
         git config --global core.autocrlf input
         git clone -b master --single-branch https://github.com/JetBrains/JetBrainsRuntime.git
         cd JetBrainsRuntime
+        mkdir jcef_linux_x64 && tar zxf ../jcef/jcef_linux_x64.tar.gz -C jcef_linux_x64
         git apply -p0 < jb/project/tools/patches/add_jcef_module.patch
         mv ../idea.patch ./
         patch -p1 < idea.patch
-        sh ./configure --disable-warnings-as-errors --with-import-modules=../jcef/out/linux64/modular-sdk
+        sh ./configure --disable-warnings-as-errors --with-import-modules=./jcef_linux_x64/modular-sdk
         make images
 
     - name: List Paths
